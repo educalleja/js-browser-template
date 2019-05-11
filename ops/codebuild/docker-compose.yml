@@ -1,0 +1,29 @@
+version: '3.3'
+services:
+  stackup:
+    image: realestate/stackup
+    volumes:
+      - './:/app'
+      - '$HOME/.aws:/root/.aws'
+    working_dir: /app
+    environment:
+      - AWS_DEFAULT_REGION=[set]
+      - AWS_DEFAULT_PROFILE=[set]
+
+  node:
+    image: node:dubnium
+    volumes:
+      - '../:/app'
+      - '$HOME/.aws:/root/.aws'
+      - '$HOME/.npm/:/root/.npm/'
+    working_dir: /app
+
+  aws-jq:
+    image: myobplatform/aws-jq
+    volumes:
+      - '$HOME/.kube:/root/.kube'
+      - '$HOME/.aws:/root/.aws'
+      - './:/app'
+    working_dir: /app
+    environment:
+      AWS_DEFAULT_REGION: [set]

@@ -1,0 +1,334 @@
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Created resources are tagged with this name.
+
+  VpcCidrBlock:
+    Type: String
+    Description: Cidr block for the VPC
+
+  PublicSubnetCidrBlock:
+    Type: String
+    Description: Cidr block for public subnet
+
+  PrivateSubnetCidrBlock:
+    Type: String
+    Description: Cidr block for private subnet
+
+  CodeBuildCloudwatchLogsStatus:
+    Type: String
+    AllowedValues:
+      - ENABLED
+      - DISABLED
+    Description: Enabled or disabled codebuild logs in cloudwatch.
+
+  CodeBuildArtifactStoreBucketName:
+    Type: String
+    Description: S3 bucket name where output artifacts are stored after build
+
+  CodeBuildEnvComputeType:
+    Type: String
+    AllowedValues:
+      - BUILD_GENERAL1_SMALL
+      - BUILD_GENERAL1_MEDIUM
+      - BUILD_GENERAL1_LARGE
+    Description: Build instances compute type
+  
+  CodeBuildEnvType:
+    Type: String
+    AllowedValues:
+      - WINDOWS_CONTAINER
+      - LINUX_CONTAINER
+    Description: CodeBuild environment Type
+  
+  CodeBuildEnvImage:
+    Type: String
+    Description: Code build docker base image.
+
+  GitHubOAuthToken:
+    Type: String
+    Description: OAuthToken to access the repository's owner account.
+
+  GitHubUser:
+    Type: String
+    Description: Owners account in GitHub
+
+  GitHubRepository:
+    Type: String
+    Description: Name of the repository used as source code.
+
+  GitHubBranch: 
+    Type: String
+    Description: Repository's branch. Commits in this branch are automatically build and deployed.
+
+  LambdaBucketCleaner:
+    Type: String
+    Description: Arn of lambda function that cleans up a bucket on cloudformation DELETE operation
+
+Resources:
+      
+  CodeBuildVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-codebuild
+
+  CodeBuildInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref ProjectName
+
+  CodeBuildInternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref CodeBuildInternetGateway
+      VpcId: !Ref CodeBuildVPC
+
+  CodeBuildPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CodeBuildVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      MapPublicIpOnLaunch: true
+      CidrBlock: !Ref PublicSubnetCidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-public-codebuild
+
+  CodeBuildPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CodeBuildVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: !Ref PrivateSubnetCidrBlock
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-private-codebuild
+  
+
+  CodeBuildNatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: CodeBuildInternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  CodeBuildNatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt CodeBuildNatGatewayEIP.AllocationId
+      SubnetId: !Ref CodeBuildPublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-codebuild
+
+  CodeBuildPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CodeBuildVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-public-codebuild
+
+  CodeBuildDefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: CodeBuildInternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref CodeBuildPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref CodeBuildInternetGateway
+
+  CodeBuildPublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref CodeBuildPublicRouteTable
+      SubnetId: !Ref CodeBuildPublicSubnet
+
+  CodeBuildPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CodeBuildVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-private-codebuild
+  
+
+  CodeBuildDefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref CodeBuildPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref CodeBuildNatGateway
+
+  CodeBuildPrivateRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref CodeBuildPrivateRouteTable
+      SubnetId: !Ref CodeBuildPrivateSubnet
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-codebuild-role
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: ['sts:AssumeRole']
+          Effect: Allow
+          Principal:
+            Service: [codebuild.amazonaws.com]
+        Version: '2012-10-17'
+      Path: /
+      Policies:
+        - PolicyName: CodeBuildAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                - 'logs:*'
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeDhcpOptions'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:CreateNetworkInterfacePermission'
+                - 's3:*'
+                - 'cloudwatch:*'
+                Effect: Allow
+                Resource: '*'
+
+  CodeBuildSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-codebuild
+      GroupDescription: 'CodeBuild SecurityGroup'
+      VpcId: !Ref CodeBuildVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-codebuild
+
+  CodeBuildProject:
+      Type: AWS::CodeBuild::Project
+      Properties:
+        Artifacts:
+          Type: CODEPIPELINE
+        Name: !Ref ProjectName
+        Source:
+          Type: CODEPIPELINE
+        Environment:
+          Type: !Ref CodeBuildEnvType
+          Image: !Ref CodeBuildEnvImage
+          ComputeType: !Ref CodeBuildEnvComputeType
+        LogsConfig:
+          CloudWatchLogs: 
+            Status: !Ref CodeBuildCloudwatchLogsStatus
+            GroupName: !Sub ${ProjectName}-codebuild
+        ServiceRole: !Ref CodeBuildRole
+        VpcConfig:
+          VpcId: !Ref CodeBuildVPC
+          Subnets: [!Ref CodeBuildPrivateSubnet]
+          SecurityGroupIds: [!Ref CodeBuildSecurityGroup]
+
+  CodeBuildArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Ref CodeBuildArtifactStoreBucketName
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: ['sts:AssumeRole']
+          Effect: Allow
+          Principal:
+            Service: [codepipeline.amazonaws.com]
+        Version: '2012-10-17'
+
+  PipeLineRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: !Sub ${ProjectName}-codepipeline-role
+        AssumeRolePolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            -
+              Effect: Allow
+              Principal:
+                Service:
+                  - codepipeline.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Path: /
+        Policies:
+        - PolicyName: CodePipelineAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                - 'codebuild:BatchGetBuilds'
+                - 'codebuild:StartBuild'
+                - 'logs: *'
+                - 'cloudwatch:*'
+                - 's3:*'
+                Effect: Allow
+                Resource: '*'
+  
+  CodePipelineProject:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Ref ProjectName
+      ArtifactStore:
+        Type: S3
+        Location: !Ref CodeBuildArtifactsBucket
+      RestartExecutionOnUpdate: false
+      RoleArn: !GetAtt PipeLineRole.Arn
+      Stages:
+        -
+          Name: Source
+          Actions:
+            -
+              Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              OutputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                Owner: !Ref GitHubUser
+                Repo: !Ref GitHubRepository
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubOAuthToken
+                PollForSourceChanges: false
+              RunOrder: 1
+        -
+          Name: Build
+          Actions:
+            -
+              Name: BuildAction
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref ProjectName
+              RunOrder: 1
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildArtifacts
+  
+  CleanupArtifactsBucketOnDelete:
+    Type: Custom::cleanupbucket
+    DependsOn: CodeBuildArtifactsBucket
+    Properties:
+       ServiceToken: !Ref LambdaBucketCleaner
+       BucketName: !Ref CodeBuildArtifactStoreBucketName

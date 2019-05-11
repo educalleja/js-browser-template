@@ -1,0 +1,35 @@
+{
+  "name": "js-browser-template",
+  "version": "0.0.1",
+  "description": "",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "rimraf dist/ && babel src/ --out-dir dist/ --ignore ./node_modules,./.babelrc,./package.json,./npm-debug.log --copy-files",
+    "test": "jest",
+    "start": "npm run build && node dist/index.js",
+    "lint": "eslint src/**",
+    "pre-commit": "npm test && npm run lint"
+  },
+  "author": "Eduardo Calleja",
+  "license": "ISC",
+  "devDependencies": {
+    "@babel/cli": "^7.4.4",
+    "@babel/core": "^7.4.4",
+    "@babel/preset-env": "^7.4.4",
+    "eslint": "^5.16.0",
+    "eslint-config-airbnb-base": "^13.1.0",
+    "eslint-plugin-import": "^2.17.2",
+    "eslint-plugin-jest": "^22.5.1",
+    "husky": "^2.2.0",
+    "jest": "^24.7.1",
+    "rimraf": "^2.6.3"
+  },
+  "dependencies": {
+    "@babel/polyfill": "^7.4.4"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm run pre-commit"
+    }
+  }
+}
